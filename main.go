@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"image"
+	"math"
 //	"io/ioutil"
 	"log"
 	"os"
@@ -18,6 +19,8 @@ import (
 
 var act = flag.String("act", "remove", "Action to perform: add=add some lines, remove=remove them")
 var lvl = flag.Float64("lvl", 0, "Dispersion level to start apply algorithm from")
+var lines = flag.Int("lines", 5, "Number of lines around to get a middle dispersion from")
+var lvlm = flag.Float64("lvlm", 10, "Dispersion level for nearby rows to become stripes")
 
 func usage() {
 	fmt.Fprintf(os.Stderr, "usage:\n")
@@ -84,30 +87,72 @@ func main() {
 			}
 		}
 		fmt.Printf(" DONE\n")
-	} else {
+        } else {
 		// detect stripes rows
+		// by dispersion level on row pixels
 		stripe := make([]bool, h)
+		rowdisp := make([]float64, h)
+		rowmidlr := make([]float64, h)
+		rowmidlg := make([]float64, h)
+		rowmidlb := make([]float64, h)
 		for r := 0; r < h; r++ {
-			var x, x2 float64
-			for c := 0; c < w; c++ {
-				gray := float64(color.GrayModel.Convert(im.At(c, r)).(color.Gray).Y)
+		        var x, x2 float64
+		        for c := 0; c < w; c++ {
+		                gray := float64(color.GrayModel.Convert(im.At(c, r)).(color.Gray).Y)
+		                x += gray
+		                x2 += gray*gray
 
-				x += gray
-				x2 += gray*gray
-			}
+				cr, cg, cb, _ := im.At(c, r).RGBA()
+				rowmidlr[r] += float64(cr>>8)/float64(w)
+				rowmidlg[r] += float64(cg>>8)/float64(w)
+				rowmidlb[r] += float64(cb>>8)/float64(w)
+		        }
 
-			if float64(w)*x2/(x*x) - 1 <= *lvl {
-				stripe[r] = true
+		        if float64(w)*x2/(x*x) - 1 <= *lvl {
+		                stripe[r] = true
 			}
+			rowdisp[r] = float64(w)*x2/(x*x) - 1
+		}
 
-			/*
-			if r%8 == 0 || r%8 == 2 || r%8 == 3 || r%8 == 5 {
-				stripe[r] = true
+		// detect stripes rows
+		// by middle level on nearest rows
+		for r := 0; r < h; r++ {
+			var n int
+			var mr, mg, mb float64
+			for ri := r - *lines; ri < r + *lines; ri++ {
+				if ri < 0 || ri >= h {
+					// continue
+				} else {
+					n += 1
+					mr += rowmidlr[ri]
+					mg += rowmidlg[ri]
+					mb += rowmidlb[ri]
+				}
 			}
-			*/
+			mr /= float64(n)
+			mg /= float64(n)
+			mb /= float64(n)
+
+		        if math.Abs(mr - rowmidlr[r]) <= *lvlm ||
+			   math.Abs(mg - rowmidlg[r]) <= *lvlm ||
+			   math.Abs(mb - rowmidlb[r]) <= *lvlm {
+		                stripe[r] = true
+			}
 		}
 
 		for r := 0; r < h; r++ {
+			/*
+			for c := 0; c < w; c++ {
+				//wim.Set(c, r, im.At(c, r))
+				cr, cg, cb, _ := im.At(c, r).RGBA()
+				wim.Set(c, r, color.NRGBA{
+					uint8(float64(cr>>8) - rowmidlr[r] + rowmmidlr[r]),
+					uint8(float64(cg>>8) - rowmidlr[r] + rowmmidlr[r]),
+					uint8(float64(cb>>8) - rowmidlr[r] + rowmmidlr[r]),
+					255})
+			}
+			*/
+
 			if stripe[r] {
 				// get prev/next color
 				rprev := r
